@@ -12,25 +12,29 @@
 
 namespace functional;
 
-use APP\author\Author;
-use APP\facades\Repo;
-use APP\issue\Issue;
-use APP\journal\Journal;
-use APP\plugins\generic\jatsTemplate\classes\Article;
-use APP\publication\Publication;
-use APP\section\Section;
-use APP\submission\Submission;
-use PHPUnit\Framework\MockObject\MockObject;
-use PKP\author\Repository as AuthorRepository;
 use PKP\doi\Doi;
-use PKP\galley\Collector as GalleyCollector;
+use APP\issue\Issue;
+use APP\facades\Repo;
+use APP\author\Author;
 use PKP\galley\Galley;
 use PKP\oai\OAIRecord;
+use APP\journal\Journal;
+use APP\section\Section;
 use PKP\tests\PKPTestCase;
+use APP\submission\Submission;
+use APP\publication\Publication;
+use PHPUnit\Framework\MockObject\MockObject;
+use PKP\galley\Collector as GalleyCollector;
+use PHPUnit\Framework\Attributes\CoversMethod;
+use PKP\author\Repository as AuthorRepository;
+use APP\plugins\generic\jatsTemplate\classes\Article;
 
+#[CoversMethod(Article::class, 'convertToXml')]
+#[CoversMethod(Article::class, 'mapHtmlTagsForTitle')]
 class ArticleTest extends PKPTestCase
 {
     private string $xmlFilePath = 'plugins/generic/jatsTemplate/tests/data/';
+
     /**
      * @see PKPTestCase::getMockedDAOs()
      */
@@ -57,7 +61,6 @@ class ArticleTest extends PKPTestCase
 
     /**
      * create mock OAIRecord object
-     * @return OAIRecord
      */
     private function createOAIRecordMockObject(): OAIRecord
     {
@@ -107,14 +110,14 @@ class ArticleTest extends PKPTestCase
         /** @var Galley|MockObject */
         $galley = $this->getMockBuilder(Galley::class)
             ->onlyMethods(['getFileType', 'getBestGalleyId'])
-            ->setProxyTarget($galley)
+            // ->setProxyTarget($galley)
             ->getMock();
         $galley->expects(self::any())
             ->method('getFileType')
-            ->will($this->returnValue('galley-filetype'));
+            ->willReturn('galley-filetype');
         $galley->expects(self::any())
             ->method('getBestGalleyId')
-            ->will($this->returnValue(98));
+            ->willReturn(98);
         $galley->setId(98);
         $galley->setData('submissionFileId',98);
         $galley->setData('doiObject', $galleyDoiObject);
@@ -134,16 +137,16 @@ class ArticleTest extends PKPTestCase
             ->getMock();
         $article->expects($this->any())
             ->method('getBestId')
-            ->will($this->returnValue(9));
+            ->willReturn(9);
         $article->expects($this->any())
             ->method('getGalleys')
-            ->will($this->returnValue($galleys));
+            ->willReturn($galleys);
         $article->setId(9);
         $article->setData('contextId', $journalId);
         $author->setSubmissionId($article->getId());
         $article->expects($this->any())
             ->method('getCurrentPublication')
-            ->will($this->returnValue($publication));
+            ->willReturn($publication);
 
         // Journal
         /** @var Journal|MockObject */
@@ -182,7 +185,7 @@ class ArticleTest extends PKPTestCase
             ->getMock();
         $issue->expects($this->any())
             ->method('getIssueIdentification')
-            ->will($this->returnValue('issue-identification'));
+            ->willReturn('issue-identification');
         $issue->setId(96);
         $issue->setDatePublished('2010-11-05');
         $issue->setData('doiObject', $issueDoiObject);
@@ -202,11 +205,10 @@ class ArticleTest extends PKPTestCase
         return $record;
     }
 
-    /**
-     * @covers ::convertToXml
-     */
-    public function testConvertToXml()
+    public function testConvertToXml(): void
     {
+        $this->mockRequest();
+
         $record = $this->createOAIRecordMockObject();
         $article = new Article();
         $article->convertOAIToXml($record);
@@ -214,10 +216,10 @@ class ArticleTest extends PKPTestCase
         self::assertTrue($article);
     }
 
-    /**
-     * @covers ::mapHtmlTagsForTitle
-     */
-    public function testMapHtmlTagsForTitle(){
+    public function testMapHtmlTagsForTitle(): void
+    {
+        $this->mockRequest();
+
         $expected = '<bold>test</bold>';
         $htmlString = '<b>test</b>';
         $record = $this->createOAIRecordMockObject();

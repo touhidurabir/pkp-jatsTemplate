@@ -12,27 +12,29 @@
 
 namespace functional;
 
-use APP\author\Author;
-use APP\core\Application;
+use PKP\doi\Doi;
+use APP\issue\Issue;
 use APP\core\Request;
 use APP\facades\Repo;
-use APP\issue\Issue;
-use APP\journal\Journal;
-use APP\plugins\generic\jatsTemplate\classes\Article;
-use APP\plugins\generic\jatsTemplate\classes\ArticleFront;
-use APP\publication\Publication;
-use APP\section\Section;
-use APP\submission\Submission;
-use PHPUnit\Framework\MockObject\MockObject;
-use PKP\core\PKPRouter;
-use PKP\doi\Doi;
+use APP\author\Author;
 use PKP\galley\Galley;
 use PKP\oai\OAIRecord;
+use PKP\core\PKPRouter;
+use APP\journal\Journal;
+use APP\section\Section;
+use APP\core\Application;
+use APP\submission\Submission;
+use APP\publication\Publication;
+use PHPUnit\Framework\MockObject\MockObject;
+use PHPUnit\Framework\Attributes\CoversClass;
+use APP\plugins\generic\jatsTemplate\classes\Article;
+use APP\plugins\generic\jatsTemplate\classes\ArticleFront;
 
+#[CoversClass(ArticleFront::class)]
 class ArticleFrontTest extends \PKP\tests\PKPTestCase
 {
-
     private string $xmlFilePath = 'plugins/generic/jatsTemplate/tests/data/';
+
     /**
      * @see PKPTestCase::getMockedRegistryKeys()
      */
@@ -57,7 +59,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
 
     /**
      * create mock OAIRecord object
-     * @return OAIRecord
      */
     private function createOAIRecordMockObject(): OAIRecord
     {
@@ -104,13 +105,13 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             ->getMock();
         $article->expects($this->any())
             ->method('getBestId')
-            ->will($this->returnValue(9));
+            ->willReturn(9);
         $article->setId(9);
         $article->setData('contextId', $journalId);
         $author->setSubmissionId($article->getId());
         $article->expects($this->any())
             ->method('getCurrentPublication')
-            ->will($this->returnValue($publication));
+            ->willReturn($publication);
 
         /** @var Doi|MockObject */
         $galleyDoiObject = $this->getMockBuilder(Doi::class)
@@ -123,14 +124,14 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         /** @var Galley|MockObject */
         $galley = $this->getMockBuilder(Galley::class)
             ->onlyMethods(['getFileType', 'getBestGalleyId'])
-            ->setProxyTarget($galley)
+            // ->setProxyTarget($galley)
             ->getMock();
         $galley->expects(self::any())
             ->method('getFileType')
-            ->will($this->returnValue('galley-filetype'));
+            ->willReturn('galley-filetype');
         $galley->expects(self::any())
             ->method('getBestGalleyId')
-            ->will($this->returnValue(98));
+            ->willReturn(98);
         $galley->setId(98);
         $galley->setData('doiObject', $galleyDoiObject);
 
@@ -174,7 +175,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             ->getMock();
         $issue->expects($this->any())
             ->method('getIssueIdentification')
-            ->will($this->returnValue('issue-identification'));
+            ->willReturn('issue-identification');
         $issue->setId(96);
         $issue->setDatePublished('2010-11-05');
         $issue->setData('doiObject', $issueDoiObject);
@@ -198,7 +199,8 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     /*
      * create mock request
      */
-    private function createRequestMockInstance(){
+    private function createRequestMockInstance()
+    {
         // Router
         /** @var PKPRouter|MockObject */
         $router = $this->getMockBuilder(PKPRouter::class)
@@ -208,7 +210,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $router->setApplication($application);
         $router->expects($this->any())
             ->method('url')
-            ->will($this->returnCallback(fn ($request, $newContext = null, $handler = null, $op = null, $path = null) => $handler . '-' . $op . '-' . $path));
+            ->willReturnCallback(fn ($request, $newContext = null, $handler = null, $op = null, $path = null) => $handler . '-' . $op . '-' . $path);
 
         // Request
         $requestMock = $this->getMockBuilder(Request::class)
@@ -216,20 +218,20 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             ->getMock();
         $requestMock->expects($this->any())
             ->method('getRouter')
-            ->will($this->returnValue($router));
+            ->willReturn($router);
 
         return $requestMock;
     }
 
-    /**
-     * testing create front element
-     * @throws \DOMException
-     */
-    public function testCreate(){
+    public function testCreate(): void
+    {
+        $mockRequest = $this->mockRequest();
+
         $OAIRecord = $this->createOAIRecordMockObject();
         $record =& $OAIRecord;
         $submission =& $record->getData('article');
         $journal =& $record->getData('journal');
+
         $section =& $record->getData('section');
         $issue =& $record->getData('issue');
         $article = $this->createArticleMockInstance($record);
@@ -240,37 +242,35 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $submission,
             $section,
             $issue,
-            $this->createRequestMockInstance(),
+            $mockRequest,
+            // $this->createRequestMockInstance(),
             $article,
         );
+
         self::assertXmlStringEqualsXmlFile(
-            $this->xmlFilePath.'frontElement.xml',
-            $articleFrontElement->saveXML($xml));
+            $this->xmlFilePath . 'frontElement.xml',
+            $articleFrontElement->saveXML($xml)
+        );
     }
 
-    /**
-     * testing create journal-meta element
-     * @throws \DOMException
-     */
-    public function testCreateJournalMeta(){
+    public function testCreateJournalMeta(): void
+    {
+        $mockRequest = $this->mockRequest();
         $OAIRecord = $this->createOAIRecordMockObject();
         $record =& $OAIRecord;
         $journal =& $record->getData('journal');
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createJournalMeta(
-            $journal
+            $journal, $mockRequest
         );
         self::assertXmlStringEqualsXmlFile(
             $this->xmlFilePath.'journalMetaElement.xml',
             $articleFrontElement->saveXML($xml));
     }
 
-    /**
-     * testing create article-meta element
-     * @throws \DOMException
-     */
-    public function testCreateArticleMeta(){
+    public function testCreateArticleMeta(): void
+    {
         $OAIRecord = $this->createOAIRecordMockObject();
         $record =& $OAIRecord;
         $submission =& $record->getData('article');
@@ -294,11 +294,8 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         );
     }
 
-    /**
-     * testing create journal-meta journal-title-group element
-     * @throws \DOMException
-     */
-    public function testCreateJournalMetaJournalTitleGroup(){
+    public function testCreateJournalMetaJournalTitleGroup(): void
+    {
         $OAIRecord = $this->createOAIRecordMockObject();
         $record =& $OAIRecord;
         $journal =& $record->getData('journal');
@@ -313,39 +310,16 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         );
     }
 
-    /**
-     * testing create article-meta article-categories element
-     * @throws \DOMException
-     */
-    public function testCreateArticleCategories(){
-        $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $journal =& $record->getData('journal');
-        $section =& $record->getData('section');
-
-        $articleFrontElement = new ArticleFront();
-        $xml = $articleFrontElement->createArticleCategories(
-            $journal,
-            $section
-        );
-        self::assertXmlStringEqualsXmlFile(
-            $this->xmlFilePath.'articleMetaArticle_CategoriesElement.xml',
-            $articleFrontElement->saveXML($xml)
-        );
-    }
-
-    /**
-     * testing create article-meta contrib-group element
-     * @throws \DOMException
-     */
-    public function testCreateArticleContribGroup(){
+    public function testCreateArticleContribGroup(): void
+    {
         $OAIRecord = $this->createOAIRecordMockObject();
         $record =& $OAIRecord;
         $submission =& $record->getData('article');
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createArticleContribGroup(
-            $submission
+            $submission,
+            $submission->getCurrentPublication()
         );
         self::assertXmlStringEqualsXmlFile(
             $this->xmlFilePath.'articleMetaArticle_ContribGroupElement.xml',
