@@ -23,12 +23,9 @@ use APP\section\Section;
 use APP\submission\Submission;
 use Carbon\Carbon;
 use DOMDocument;
-use DOMNode;
 use DOMElement;
+use DOMNode;
 use Exception;
-use Illuminate\Database\Query\JoinClause;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use PKP\author\contributorRole\ContributorRoleIdentifier;
 use PKP\author\contributorRole\ContributorType;
 use PKP\author\creditRole\CreditRoleDegree;
@@ -38,6 +35,7 @@ use PKP\core\PKPString;
 use PKP\galley\Galley;
 use PKP\i18n\LocaleConversion;
 use PKP\plugins\PluginRegistry;
+use PKP\publication\enums\UpdateType;
 use PKP\submissionFile\SubmissionFile;
 use PKP\userGroup\UserGroup;
 use XSLTProcessor;
@@ -248,9 +246,9 @@ class ArticleFront extends DOMDocument
                 ->appendChild($this->createTextNode($doi));
         }
 
-        // Store the article-version, skipping PMUR as it is not yet part of the standard
+        // Store the article-version
         $versionStage = $publication->getData('versionStage');
-        if ($versionStage && $versionStage !== VersionStage::PUBLISHED_MANUSCRIPT_UNDER_REVIEW->value) {
+        if ($versionStage) {
             $stage = VersionStage::tryFrom($versionStage);
             $versionLabel = $stage?->label('en');
 
@@ -263,10 +261,13 @@ class ArticleFront extends DOMDocument
 
             if ($versionLabel && $version) {
                 $articleVersionElement = $this->createElement('article-version');
-                $articleVersionElement->setAttribute('vocab', 'JAV');
-                $articleVersionElement->setAttribute('vocab-identifier', 'http://www.niso.org/publications/rp/RP-8-2008.pdf');
+                // Do not include for PMUR as it is not yet part of the JAV standard
+                if ($versionStage !== VersionStage::PUBLISHED_MANUSCRIPT_UNDER_REVIEW->value) {
+                    $articleVersionElement->setAttribute('vocab', 'JAV');
+                    $articleVersionElement->setAttribute('vocab-identifier', 'http://www.niso.org/publications/rp/RP-8-2008.pdf');
+                    $articleVersionElement->setAttribute('vocab-term', $versionLabel);
+                }
                 $articleVersionElement->setAttribute('article-version-type', $versionStage);
-                $articleVersionElement->setAttribute('vocab-term', $versionLabel);
                 $articleVersionElement->appendChild($this->createTextNode($version));
                 $articleMetaElement->appendChild($articleVersionElement);
             }
@@ -328,8 +329,8 @@ class ArticleFront extends DOMDocument
                     ->setAttribute('institution-id-type', 'ROR');
             } else {
                 $affNode->appendChild($this->createElement('institution'))
-                ->appendChild($this->createTextNode($institution['name']))->parentNode
-                ->setAttribute('content-type', 'orgname');
+                    ->appendChild($this->createTextNode($institution['name']))->parentNode
+                    ->setAttribute('content-type', 'orgname');
             }
         }
 
@@ -554,6 +555,41 @@ class ArticleFront extends DOMDocument
             }
         }
 
+        // Link the immediately preceding published version as a related article
+        $versionRelation = Repo::publication()->getVersionRelation($publication, $submission, $journal);
+        if ($versionRelation) {
+            $relatedArticleElement = $articleMetaElement->appendChild($this->createElement('related-article'));
+            // Set a JATS related-article-type when the relationship maps to one; otherwise
+            // leave it unset. The DataCite ordering relation (isNewVersionOf) is always
+            // preserved in specific-use.
+            $relatedArticleType = $this->versionRelatedArticleType($versionRelation);
+            if ($relatedArticleType) {
+                $relatedArticleElement->setAttribute('related-article-type', $relatedArticleType);
+            }
+            $relatedArticleElement->setAttribute('specific-use', $versionRelation->relationType->value);
+            if ($versionRelation->doiUrl) {
+                $relatedArticleElement->setAttribute('ext-link-type', 'doi');
+                $relatedArticleElement->setAttribute('xlink:href', $versionRelation->doiUrl);
+            } else {
+                $relatedArticleElement->setAttribute('ext-link-type', 'uri');
+                $relatedArticleElement->setAttribute('xlink:href', $dispatcher->url(
+                    $request,
+                    PKPApplication::ROUTE_PAGE,
+                    $journal->getPath(),
+                    'article',
+                    'view',
+                    [$submission->getBestId(), 'version', $versionRelation->publicationId],
+                    null,
+                    null,
+                    true,
+                    ''
+                ));
+            }
+            if ($versionRelation->versionString) {
+                $relatedArticleElement->appendChild($this->createTextNode($versionRelation->versionString));
+            }
+        }
+
         // Add abstract
         $abstracts = $publication->getData('abstract');
         $transAbstracts = [];
@@ -631,12 +667,12 @@ class ArticleFront extends DOMDocument
 
         // Fetch keyword data from the publication object, this will only include the name attribute.
         $keywordVocabs = collect($publication->getData('keywords'))
-                            ->map(
-                                fn (array $items): array => collect($items)
-                                    ->pluck("name")
-                                ->all()
-                            )
-                            ->all();
+            ->map(
+                fn (array $items): array => collect($items)
+                    ->pluck('name')
+                    ->all()
+            )
+            ->all();
 
         foreach ($keywordVocabs as $locale => $keywords) {
             if (empty($keywords)) {
@@ -680,13 +716,15 @@ class ArticleFront extends DOMDocument
                     $fundingSourceNode->appendChild($institutionWrapNode);
                     $awardGroupNode->appendChild($fundingSourceNode);
 
-                    foreach ($funder->grants as $grant) {
-                        // Use grant DOI as award-id if available, otherwise fall back to grant number
-                        // In JATS 1.3 the @award-id-type attribute can specify the type of identifier (e.g. 'doi', 'grant_number', etc.).
-                        $awardId = $grant['grantDoi'] ?? $grant['grantNumber'] ?? null;
-                        if ($awardId) {
-                            $awardIdNode = $this->createElement('award-id', $awardId);
-                            $awardGroupNode->appendChild($awardIdNode);
+                    if (!empty($funder->grants)) {
+                        foreach ($funder->grants as $grant) {
+                            // Use grant DOI as award-id if available, otherwise fall back to grant number
+                            // In JATS 1.3 the @award-id-type attribute can specify the type of identifier (e.g. 'doi', 'grant_number', etc.).
+                            $awardId = $grant['grantDoi'] ?? $grant['grantNumber'] ?? null;
+                            if ($awardId) {
+                                $awardIdNode = $this->createElement('award-id', $awardId);
+                                $awardGroupNode->appendChild($awardIdNode);
+                            }
                         }
                     }
 
@@ -756,7 +794,7 @@ class ArticleFront extends DOMDocument
                     null,
                     'jatsTemplate',
                     'download',
-                    null,
+                    [$journal->getPath()],
                     [
                         'submissionFileId' => $layoutFile->getId(),
                         'fileId' => $layoutFile->getData('fileId'),
@@ -968,8 +1006,10 @@ class ArticleFront extends DOMDocument
      * @param string $abstract The HTML abstract content
      * @param DOMElement $parentElement The article-meta DOM element
      * @param ?string $abstractType Optional abstract type (e.g., 'plain-language-summary')
-     * @return DOMElement|null The created abstract element or null if transformation fails
+     *
      * @throws Exception
+     *
+     * @return DOMElement|null The created abstract element or null if transformation fails
      */
     public function generateAbstractContentFromXSL(
         Submission $article,
@@ -1055,5 +1095,30 @@ class ArticleFront extends DOMDocument
         }
 
         return $abstractElement;
+    }
+
+    /**
+     * Map a version relationship to a JATS related-article-type. Relations are backward-only,
+     * so the target is always an OLDER version that this record acts on (e.g. a correction names
+     * the corrected-article; a retraction the retracted-article; a new version/edition names the
+     * updated-article, following PMC's convention for updated/republished articles since it is not
+     * captured in the JATS guidelines).
+     *
+     * https://jats.nlm.nih.gov/archiving/tag-library/1.2/attribute/related-article-type.html
+     * https://pmc.ncbi.nlm.nih.gov/tagging-guidelines/article/tags/#el-relart
+     */
+    protected function versionRelatedArticleType(object $versionRelation): ?string
+    {
+        return match ($versionRelation->updateType) {
+            UpdateType::ADDENDUM => 'addendum',
+            UpdateType::NEW_VERSION, UpdateType::NEW_EDITION => 'updated-article',
+            UpdateType::CLARIFICATION, UpdateType::CORRECTION,
+            UpdateType::CORRIGENDUM, UpdateType::ERRATUM => 'corrected-article',
+            UpdateType::EXPRESSION_OF_CONCERN => 'expression-of-concern',
+            UpdateType::PARTIAL_RETRACTION => 'partial-retraction',
+            UpdateType::RETRACTION, UpdateType::WITHDRAWAL,
+            UpdateType::REMOVAL => 'retracted-article',
+            default => null,
+        };
     }
 }

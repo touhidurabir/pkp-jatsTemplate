@@ -18,8 +18,10 @@ use APP\journal\Journal;
 use APP\plugins\generic\jatsTemplate\classes\Article;
 use APP\plugins\generic\jatsTemplate\classes\ArticleFront;
 use APP\publication\Publication;
+use APP\publication\Repository;
 use APP\section\Section;
 use APP\submission\Submission;
+use Mockery;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\MockObject\MockObject;
 use PKP\affiliation\Affiliation;
@@ -29,6 +31,9 @@ use PKP\author\contributorRole\ContributorType;
 use PKP\doi\Doi;
 use PKP\galley\Galley;
 use PKP\oai\OAIRecord;
+use PKP\publication\enums\UpdateType;
+use PKP\publication\enums\VersionRelationType;
+use PKP\submissionFile\SubmissionFile;
 
 #[CoversClass(ArticleFront::class)]
 class ArticleFrontTest extends \PKP\tests\PKPTestCase
@@ -45,16 +50,26 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     }
 
     /**
+     * @see PKPTestCase::getMockedContainerKeys()
+     */
+    protected function getMockedContainerKeys(): array
+    {
+        return [
+            ...parent::getMockedContainerKeys(),
+            \APP\submissionFile\Repository::class,
+            Repository::class,
+        ];
+    }
+
+    /**
      * Create article mock instance.
      */
     private function createArticleMockInstance(OAIRecord $record)
     {
-        $article = $this->getMockBuilder(Article::class)
+        return $this->getMockBuilder(Article::class)
             ->setConstructorArgs([$record])
             ->onlyMethods([])
             ->getMock();
-
-        return $article;
     }
 
     /**
@@ -162,7 +177,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $galleys = collect([$galley]);
 
         // Mock SubmissionFile Repository to provide mimetype
-        $submissionFileMock = \Mockery::mock(\PKP\submissionFile\SubmissionFile::class);
+        $submissionFileMock = Mockery::mock(SubmissionFile::class);
         $submissionFileMock->shouldReceive('getData')
             ->andReturnUsing(function ($key) {
                 return match ($key) {
@@ -173,12 +188,12 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             });
 
         // Mock Collector for method chaining
-        $collectorMock = \Mockery::mock(\PKP\submissionFile\Collector::class);
+        $collectorMock = Mockery::mock(\PKP\submissionFile\Collector::class);
         $collectorMock->shouldReceive('filterBySubmissionIds')->andReturnSelf();
         $collectorMock->shouldReceive('filterByFileStages')->andReturnSelf();
         $collectorMock->shouldReceive('getMany')->andReturn(\Illuminate\Support\LazyCollection::make([]));
 
-        $submissionFileRepoMock = \Mockery::mock(\APP\submissionFile\Repository::class);
+        $submissionFileRepoMock = Mockery::mock(\APP\submissionFile\Repository::class);
         $submissionFileRepoMock->shouldReceive('get')
             ->with(98)
             ->andReturn($submissionFileMock);
@@ -255,11 +270,11 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     public function testCreate()
     {
         $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $submission =& $record->getData('article'); /** @var Submission $submission */
-        $journal =& $record->getData('journal'); /** @var Journal $journal */
-        $section =& $record->getData('section'); /** @var Section $section */
-        $issue =& $record->getData('issue'); /** @var Issue $issue */
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
+        $section = & $record->getData('section'); /** @var Section $section */
+        $issue = & $record->getData('issue'); /** @var Issue $issue */
         $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
 
@@ -286,8 +301,8 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     public function testCreateJournalMeta()
     {
         $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $journal =& $record->getData('journal'); /** @var Journal $journal */
+        $record = & $OAIRecord;
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createJournalMeta(
@@ -307,11 +322,11 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     public function testCreateArticleMeta()
     {
         $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $submission =& $record->getData('article'); /** @var Submission $submission */
-        $journal =& $record->getData('journal'); /** @var Journal $journal */
-        $section =& $record->getData('section'); /** @var Section $section */
-        $issue =& $record->getData('issue'); /** @var Issue $issue */
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
+        $section = & $record->getData('section'); /** @var Section $section */
+        $issue = & $record->getData('issue'); /** @var Issue $issue */
         $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
 
@@ -333,13 +348,141 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     }
 
     /**
+     * Test that the immediately preceding version is linked as a related-article.
+     */
+    public function testCreateArticleMetaVersionRelation()
+    {
+        $OAIRecord = $this->createOAIRecordMockObject();
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
+        $section = & $record->getData('section'); /** @var Section $section */
+        $issue = & $record->getData('issue'); /** @var Issue $issue */
+        $article = $this->createArticleMockInstance($record);
+        $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+
+        // Stub the repository to return a single preceding-version relation (chain-only).
+        $versionRelation = (object) [
+            'publicationId' => 5,
+            'versionStage' => 'VoR',
+            'versionString' => 'Version of Record 1.0',
+            'doi' => 'prev-doi',
+            'doiUrl' => 'https://doi.org/10.1234/test.prev',
+            'datePublished' => '2010-01-01',
+            'relationType' => VersionRelationType::IS_NEW_VERSION_OF,
+            'updateType' => UpdateType::NEW_VERSION,
+        ];
+        $publicationRepoMock = Mockery::mock(Repository::class);
+        $publicationRepoMock->shouldReceive('getVersionRelation')
+            ->andReturn($versionRelation);
+        app()->instance(Repository::class, $publicationRepoMock);
+
+        $articleFrontElement = new ArticleFront();
+        $xml = $articleFrontElement->createArticleMeta(
+            $submission,
+            $journal,
+            $section,
+            $issue,
+            $this->createRequestMockInstance(),
+            $article,
+            $publication
+        );
+
+        $relatedArticles = $xml->getElementsByTagName('related-article');
+        self::assertCount(1, $relatedArticles);
+
+        $relatedArticle = $relatedArticles->item(0);
+        // NEW_VERSION maps to the JATS updated-article type; the ordering relation and version
+        // string are preserved.
+        self::assertSame('updated-article', $relatedArticle->getAttribute('related-article-type'));
+        self::assertSame('isNewVersionOf', $relatedArticle->getAttribute('specific-use'));
+        self::assertSame('doi', $relatedArticle->getAttribute('ext-link-type'));
+        self::assertSame('https://doi.org/10.1234/test.prev', $relatedArticle->getAttribute('xlink:href'));
+        self::assertSame('Version of Record 1.0', $relatedArticle->textContent);
+    }
+
+    /**
+     * Test that the publication version is expressed as a JAV article-version element.
+     */
+    public function testCreateArticleMetaArticleVersion()
+    {
+        $OAIRecord = $this->createOAIRecordMockObject();
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
+        $section = & $record->getData('section'); /** @var Section $section */
+        $issue = & $record->getData('issue'); /** @var Issue $issue */
+        $article = $this->createArticleMockInstance($record);
+        $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+
+        $articleFrontElement = new ArticleFront();
+        $xml = $articleFrontElement->createArticleMeta(
+            $submission,
+            $journal,
+            $section,
+            $issue,
+            $this->createRequestMockInstance(),
+            $article,
+            $publication
+        );
+
+        $versions = $xml->getElementsByTagName('article-version');
+        self::assertCount(1, $versions);
+
+        $version = $versions->item(0);
+        // Version of Record is part of the JAV standard, so the JAV vocabulary is included.
+        self::assertSame('VoR', $version->getAttribute('article-version-type'));
+        self::assertSame('1.0', $version->textContent);
+        self::assertSame('JAV', $version->getAttribute('vocab'));
+        self::assertSame('http://www.niso.org/publications/rp/RP-8-2008.pdf', $version->getAttribute('vocab-identifier'));
+        self::assertSame('Version of Record', $version->getAttribute('vocab-term'));
+    }
+
+    /**
+     * Test that a PMUR version omits the JAV vocabulary, as PMUR is not part of the JAV standard.
+     */
+    public function testCreateArticleMetaArticleVersionPmurOmitsJavVocab()
+    {
+        $OAIRecord = $this->createOAIRecordMockObject();
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
+        $section = & $record->getData('section'); /** @var Section $section */
+        $issue = & $record->getData('issue'); /** @var Issue $issue */
+        $article = $this->createArticleMockInstance($record);
+        $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+        $publication->setData('versionStage', 'PMUR');
+
+        $articleFrontElement = new ArticleFront();
+        $xml = $articleFrontElement->createArticleMeta(
+            $submission,
+            $journal,
+            $section,
+            $issue,
+            $this->createRequestMockInstance(),
+            $article,
+            $publication
+        );
+
+        $versions = $xml->getElementsByTagName('article-version');
+        self::assertCount(1, $versions);
+
+        $version = $versions->item(0);
+        self::assertSame('PMUR', $version->getAttribute('article-version-type'));
+        self::assertSame('1.0', $version->textContent);
+        self::assertFalse($version->hasAttribute('vocab'));
+        self::assertFalse($version->hasAttribute('vocab-identifier'));
+        self::assertFalse($version->hasAttribute('vocab-term'));
+    }
+
+    /**
      * Test creating journal-meta journal-title-group element.
      */
     public function testCreateJournalMetaJournalTitleGroup()
     {
         $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $journal =& $record->getData('journal'); /** @var Journal $journal */
+        $record = & $OAIRecord;
+        $journal = & $record->getData('journal'); /** @var Journal $journal */
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createJournalMetaJournalTitleGroup(
@@ -357,8 +500,8 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     public function testCreateArticleContribGroup()
     {
         $OAIRecord = $this->createOAIRecordMockObject();
-        $record =& $OAIRecord;
-        $submission =& $record->getData('article'); /** @var Submission $submission */
+        $record = & $OAIRecord;
+        $submission = & $record->getData('article'); /** @var Submission $submission */
 
         $this->createRequestMockInstance();
 
