@@ -1,12 +1,12 @@
 <journal-meta>
   <journal-id journal-id-type="ojs">journal-path</journal-id>
-  <journal-id journal-id-type="publisher">journal-path</journal-id>
+  <journal-id journal-id-type="publisher">J Pub Know</journal-id>
   <journal-title-group>
     <journal-title xml:lang="en">journal-title</journal-title>
     <trans-title-group xml:lang="gr">
       <trans-title>journal-title</trans-title>
     </trans-title-group>
-    <abbrev-journal-title xml:lang="en">publicknowledgeJ Pub Know</abbrev-journal-title>
+    <abbrev-journal-title xml:lang="en">J Pub Know</abbrev-journal-title>
   </journal-title-group>
   <contrib-group>
     <contrib contrib-type="jmanager">
@@ -46,8 +46,8 @@
       </name>
     </contrib>
   </contrib-group>
-  <issn pub-type="epub">onlineIssn</issn>
-  <issn pub-type="ppub">printIssn</issn>
+  <issn publication-format="electronic">onlineIssn</issn>
+  <issn publication-format="print">printIssn</issn>
   <publisher>
     <publisher-name>journal-publisher</publisher-name>
   </publisher>

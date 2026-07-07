@@ -20,9 +20,13 @@
         <bio xml:lang="en">
             <p>Test biography</p>
         </bio>
+        <address>
+            <country country="GB">United Kingdom</country>
+        </address>
         <email>someone@example.com</email>
         <uri>https://example.com</uri>
         <xref ref-type="aff" rid="aff-1"/>
+        <xref ref-type="corresp" rid="corresp-1"/>
         <xref ref-type="author-notes" rid="con-1"/>
     </contrib>
 </contrib-group>

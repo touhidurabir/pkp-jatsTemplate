@@ -16,13 +16,15 @@ use APP\issue\Issue;
 use APP\publication\Publication;
 use APP\section\Section;
 use APP\submission\Submission;
+use DOMDocument;
+use DOMImplementation;
 use PKP\context\Context;
 use PKP\core\PKPRequest;
 use PKP\i18n\LocaleConversion;
 use PKP\oai\OAIRecord;
 use PKP\plugins\Hook;
 
-class Article extends \DOMDocument
+class Article extends DOMDocument
 {
     public const JATS_PUBLIC_ID = '-//NLM//DTD JATS (Z39.96) Journal Publishing DTD v1.2 20190208//EN';
     public const JATS_SYSTEM_ID = 'http://jats.nlm.nih.gov/publishing/1.2/JATS-journalpublishing1.dtd';
@@ -60,7 +62,7 @@ class Article extends \DOMDocument
         ?PKPRequest $request = null
     ): void {
         // Add DTD before the root element
-        $impl = new \DOMImplementation();
+        $impl = new DOMImplementation();
         $doctype = $impl->createDocumentType(
             'article',
             self::JATS_PUBLIC_ID,
@@ -76,10 +78,13 @@ class Article extends \DOMDocument
             ->setAttribute('dtd-version', self::JATS_VERSION)->parentNode;
 
         $articleFront = new ArticleFront();
-        $articleElement->appendChild($this->importNode($articleFront->create($context, $submission, $section, $issue, $request, $this, $publication), true));
+        $articleElement->appendChild($this->importNode($articleFront->create($context, $submission, $section, $issue, $request, $publication), true));
 
         $articleBody = new ArticleBody();
-        $articleElement->appendChild($this->importNode($articleBody->create($submission), true));
+        $articleBodyNode = $articleBody->create($submission);
+        if ($articleBodyNode) {
+            $articleElement->appendChild($this->importNode($articleBodyNode, true));
+        }
 
         if ($publication) {
             $articleBack = new ArticleBack();
@@ -94,24 +99,5 @@ class Article extends \DOMDocument
                 $articleElement->appendChild($this->importNode($subArticleNode, true));
             }
         }
-    }
-
-    /**
-     * Map HTML tags in title/subtitle to JATS elements for JATS schema compatibility
-     *
-     * @param string $htmlTitle The submission title/subtitle which may contain HTML
-     */
-    public function mapHtmlTagsForTitle(string $htmlTitle): string
-    {
-        $mappings = [
-            '<b>'   => '<bold>',
-            '</b>'  => '</bold>',
-            '<i>'   => '<italic>',
-            '</i>'  => '</italic>',
-            '<u>'   => '<underline>',
-            '</u>'  => '</underline>',
-        ];
-
-        return str_replace(array_keys($mappings), array_values($mappings), $htmlTitle);
     }
 }

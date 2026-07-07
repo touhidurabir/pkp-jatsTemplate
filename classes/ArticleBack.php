@@ -13,6 +13,7 @@
 namespace APP\plugins\generic\jatsTemplate\classes;
 
 use APP\publication\Publication;
+use DOMDocument;
 use DOMElement;
 use DOMNode;
 use Illuminate\Support\Carbon;
@@ -21,7 +22,7 @@ use PKP\citation\enum\CitationSourceType;
 use PKP\citation\enum\CitationType;
 use PKP\dataCitation\DataCitation;
 
-class ArticleBack extends \DOMDocument
+class ArticleBack extends DOMDocument
 {
     /**
      * Create xml back DOMNode
@@ -257,27 +258,7 @@ class ArticleBack extends \DOMDocument
      */
     protected function appendMixedCitation(DOMElement $refElement, string $rawCitation): void
     {
-        // Keep only safe formatting tags supported by JATS
-        $allowedTags = '<i><em><b><strong><u><a><sup><sub>';
-        $cleaned = strip_tags($rawCitation, $allowedTags);
-
-        // Escape special characters
-        $escaped = htmlspecialchars($cleaned, ENT_COMPAT, 'UTF-8');
-
-        // Convert known safe tags to JATS
-        $jatsCitation = JatsHelper::htmlToJats($escaped);
-
-        $mixedCitationXml = '<mixed-citation>' . $jatsCitation . '</mixed-citation>';
-
-        // Use document fragment to preserve JATS markup
-        $fragment = $this->createDocumentFragment();
-        // Suppress warnings from malformed user-provided citations
-        if (@$fragment->appendXML($mixedCitationXml)) {
-            $refElement->appendChild($fragment);
-        } else {
-            // Fallback if XML parsing fails - createElement handles escaping automatically
-            $refElement->appendChild($this->createElement('mixed-citation', htmlspecialchars(strip_tags($rawCitation), ENT_COMPAT, 'UTF-8')));
-        }
+        $refElement->appendChild(JatsHelper::htmlToJatsElement($this, 'mixed-citation', $rawCitation));
     }
 
     /**
