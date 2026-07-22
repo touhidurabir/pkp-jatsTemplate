@@ -98,6 +98,7 @@ Previous versions of the plugin generated JATS that did not pass DTD validation,
 | [copyright-holder](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/copyright-holder.html)         | :ok:    | :ok:       |
 | [license](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/license.html)                           | :ok:    | :x:        |
 | [license-p](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/license-p.html)                       | :ok:    | :x:        |
+| [related-article](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/related-article.html)           | :ok:    | :ok:       |
 | [abstract](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/abstract.html)                         | :ok:    | :ok:       |
 | [trans-abstract](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/trans-abstract.html)             | :ok:    | :ok:       |
 | [p](https://jats.nlm.nih.gov/archiving/tag-library/1.2/element/p.html)                                       | :ok:    | :ok:       |
