@@ -19,6 +19,7 @@ use Illuminate\Support\Carbon;
 use PKP\citation\Citation;
 use PKP\citation\enum\CitationSourceType;
 use PKP\citation\enum\CitationType;
+use PKP\dataCitation\DataCitation;
 
 class ArticleBack extends \DOMDocument
 {
@@ -29,15 +30,16 @@ class ArticleBack extends \DOMDocument
     {
         $backElement = null;
 
-        // consider citations
         $citations = $publication->getData('citations');
-        if (!empty($citations)) {
+        $dataCitations = $publication->getData('dataCitations');
+
+        if (!empty($citations) || !empty($dataCitations)) {
             // create element back
             $backElement = $this->appendChild($this->createElement('back'));
 
             $refListElement = $backElement->appendChild($this->createElement('ref-list'));
             $i = 1;
-            foreach ($citations as $citation) {
+            foreach ($citations ?? [] as $citation) {
                 $refElement = $this->createElement('ref');
                 $refElement->setAttribute('id', 'R' . $i);
                 if ($citation->getData('isStructured')) {
@@ -47,6 +49,17 @@ class ArticleBack extends \DOMDocument
                 } else {
                     $this->appendMixedCitation($refElement, $citation->getRawCitation());
                 }
+                $refListElement->appendChild($refElement);
+                $i++;
+            }
+
+            $i = 1;
+            foreach ($dataCitations ?? [] as $dataCitation) {
+                $refElement = $this->createElement('ref');
+                $refElement->setAttribute('id', 'D' . $i);
+                $elementCitation = $this->createElement('element-citation');
+                $this->appendDataCitation($elementCitation, $dataCitation);
+                $refElement->appendChild($elementCitation);
                 $refListElement->appendChild($refElement);
                 $i++;
             }
@@ -264,6 +277,69 @@ class ArticleBack extends \DOMDocument
         } else {
             // Fallback if XML parsing fails - createElement handles escaping automatically
             $refElement->appendChild($this->createElement('mixed-citation', htmlspecialchars(strip_tags($rawCitation), ENT_COMPAT, 'UTF-8')));
+        }
+    }
+
+    /**
+     * Append elements to element-citation element for a data citation
+     *
+     * @param DOMElement $elementCitation The element-citation DOM element to append to
+     * @param DataCitation $dataCitation The data citation object containing the citation information
+     * 
+     * @return void
+     */
+    protected function appendDataCitation(DOMElement $elementCitation, DataCitation $dataCitation): void
+    {
+        $elementCitation->setAttribute('publication-type', 'data');
+        if ($relationshipType = $dataCitation->getAttribute('relationshipType')) {
+            $elementCitation->setAttribute('specific-use', $relationshipType);
+        }
+
+        if (!empty($dataCitation->getAttribute('authors'))) {
+            $personGroupElement = $this->createElement('person-group');
+            $personGroupElement->setAttribute('person-group-type', 'author');
+            foreach ($dataCitation->getAttribute('authors') as $author) {
+                $familyName = $author['familyName'] ?? null;
+                $givenName = $author['givenName'] ?? null;
+                if ($familyName || $givenName) {
+                    $nameElement = $this->createElement('name');
+                    if ($familyName) {
+                        $nameElement->appendChild($this->createElement('surname', htmlspecialchars($familyName)));
+                    }
+                    if ($givenName) {
+                        $nameElement->appendChild($this->createElement('given-names', htmlspecialchars($givenName)));
+                    }
+                    $personGroupElement->appendChild($nameElement);
+                }
+            }
+            $elementCitation->appendChild($personGroupElement);
+        }
+
+        if ($title = $dataCitation->getAttribute('title')) {
+            $elementCitation->appendChild($this->createElement('data-title', htmlspecialchars($title)));
+        }
+
+        if ($year = $dataCitation->getAttribute('year')) {
+            $yearElement = $this->createElement('year', (string) $year);
+            $yearElement->setAttribute('iso-8601-date', (string) $year);
+            $elementCitation->appendChild($yearElement);
+        }
+
+        if ($repository = $dataCitation->getAttribute('repository')) {
+            $elementCitation->appendChild($this->createElement('source', htmlspecialchars($repository)));
+        }
+
+        if ($identifier = $dataCitation->getAttribute('identifier')) {
+            $pubIdElement = $this->createElement('pub-id', htmlspecialchars($identifier));
+            $pubIdElement->setAttribute('pub-id-type', $dataCitation->getAttribute('identifierType') ? strtolower($dataCitation->getAttribute('identifierType')) : 'other');
+            $elementCitation->appendChild($pubIdElement);
+        }
+
+        if ($url = $dataCitation->getAttribute('url')) {
+            $extLinkElement = $this->createElement('ext-link', htmlspecialchars($url));
+            $extLinkElement->setAttribute('ext-link-type', 'uri');
+            $extLinkElement->setAttribute('xlink:href', $url);
+            $elementCitation->appendChild($extLinkElement);
         }
     }
 }
