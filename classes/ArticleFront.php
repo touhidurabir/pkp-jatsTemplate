@@ -366,26 +366,28 @@ class ArticleFront extends DOMDocument
             $articleMetaElement->appendChild($authorNotesNode);
         }
 
+        // Both dates are strings, so each is resolved to a timestamp before use
         if ($datePublished = $publication->getData('datePublished')) {
             $datePublished = strtotime($datePublished);
-        } elseif ($issue) {
-            $datePublished = $issue->getDatePublished();
+        } elseif ($datePublished = $issue?->getDatePublished()) {
+            $datePublished = strtotime($datePublished);
         }
 
         // Include pub dates
         if ($datePublished) {
             $pubDateElement = $articleMetaElement->appendChild($this->createElement('pub-date'))
                 ->setAttribute('date-type', 'pub')->parentNode
-                ->setAttribute('publication-format', 'epub')->parentNode;
+                ->setAttribute('publication-format', 'epub')->parentNode
+                ->setAttribute('iso-8601-date', date('Y-m-d', $datePublished))->parentNode;
 
             $pubDateElement->appendChild($this->createElement('day'))
-                ->appendChild($this->createTextNode(date('d', (int)$datePublished)));
+                ->appendChild($this->createTextNode(date('d', $datePublished)));
 
             $pubDateElement->appendChild($this->createElement('month'))
-                ->appendChild($this->createTextNode(date('m', (int)$datePublished)));
+                ->appendChild($this->createTextNode(date('m', $datePublished)));
 
             $pubDateElement->appendChild($this->createElement('year'))
-                ->appendChild($this->createTextNode(date('Y', (int)$datePublished)));
+                ->appendChild($this->createTextNode(date('Y', $datePublished)));
         }
 
         // Store the issue-id, volume, number, and title

@@ -87,6 +87,12 @@ class Article extends \DOMDocument
             if ($articleBackNode) {
                 $articleElement->appendChild($this->importNode($articleBackNode, true));
             }
+
+            // Add publicly visible open peer reviews as sub-articles
+            $peerReview = new PeerReview();
+            foreach ($peerReview->create($submission, $publication) as $subArticleNode) {
+                $articleElement->appendChild($this->importNode($subArticleNode, true));
+            }
         }
     }
 

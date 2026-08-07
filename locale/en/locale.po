@@ -16,3 +16,10 @@ msgstr "JATS Template Plugin"
 
 msgid "plugins.generic.jatsTemplate.description"
 msgstr "Automatically generate a minimal JATS document from submission metadata when no JATS document is otherwise available."
+
+msgid "plugins.generic.jatsTemplate.reviewerReport.title"
+msgstr "Peer Review #{$reviewNumber} of \"{$articleTitle}\" (Round {$roundNumber}, {$versionString})"
+
+msgid "plugins.generic.jatsTemplate.authorResponse.title"
+msgstr "Author Response to Peer Review of \"{$articleTitle}\" (Round {$roundNumber}, {$versionString})"
+
