@@ -12,10 +12,10 @@
     <front>
         <journal-meta>
             <journal-id journal-id-type="ojs">journal-path</journal-id>
-            <journal-id journal-id-type="publisher">journal-path</journal-id>
+            <journal-id journal-id-type="publisher">J Pub Know</journal-id>
             <journal-title-group>
                 <journal-title xml:lang="en">journal-title</journal-title>
-                <abbrev-journal-title xml:lang="en">publicknowledgeJ Pub Know</abbrev-journal-title>
+                <abbrev-journal-title xml:lang="en">J Pub Know</abbrev-journal-title>
             </journal-title-group>
             <contrib-group>
                 <contrib contrib-type="jmanager">
@@ -55,8 +55,8 @@
                     </name>
                 </contrib>
             </contrib-group>
-            <issn pub-type="epub">onlineIssn</issn>
-            <issn pub-type="ppub">printIssn</issn>
+            <issn publication-format="electronic">onlineIssn</issn>
+            <issn publication-format="print">printIssn</issn>
             <publisher>
                 <publisher-name>journal-publisher</publisher-name>
             </publisher>
@@ -65,17 +65,18 @@
         <article-meta>
             <article-id pub-id-type="publisher-id">9</article-id>
             <article-id pub-id-type="doi">article-doi</article-id>
+            <article-id pub-id-type="other" specific-use="publication">1</article-id>
             <article-categories>
                 <subj-group xml:lang="en" subj-group-type="heading">
                     <subject>section-identify-type</subject>
                 </subj-group>
             </article-categories>
             <title-group>
-                <article-title xml:lang="en">article-title-en</article-title>
-                <subtitle xml:lang="en">article-subtitle-en</subtitle>
+                <article-title xml:lang="en">article-title-en with <bold>bold</bold> &amp; special chars</article-title>
+                <subtitle xml:lang="en">article-subtitle-en with <italic>italic</italic></subtitle>
                 <trans-title-group xml:lang="de">
-                    <trans-title>article-title-de</trans-title>
-                    <trans-subtitle>article-subtitle-de</trans-subtitle>
+                    <trans-title>article-title-de with <italic>italic</italic></trans-title>
+                    <trans-subtitle>article-subtitle-de with <underline>underline</underline></trans-subtitle>
                 </trans-title-group>
             </title-group>
             <contrib-group>
@@ -90,9 +91,13 @@
                     <bio xml:lang="en">
                         <p>Test biography</p>
                     </bio>
+                    <address>
+                        <country country="GB">United Kingdom</country>
+                    </address>
                     <email>someone@example.com</email>
                     <uri>https://example.com</uri>
                     <xref ref-type="aff" rid="aff-1"/>
+                    <xref ref-type="corresp" rid="corresp-1"/>
                     <xref ref-type="author-notes" rid="con-1"/>
                 </contrib>
             </contrib-group>
@@ -103,24 +108,32 @@
                 </institution-wrap>
             </aff>
             <author-notes>
+                <corresp id="corresp-1">
+                    <email>someone@example.com</email>
+                </corresp>
                 <fn fn-type="coi-statement" id="con-1">
                     <p>Competing interests</p>
                 </fn>
             </author-notes>
-            <pub-date date-type="pub" publication-format="epub" iso-8601-date="2010-11-05">
+            <pub-date date-type="pub" publication-format="electronic" iso-8601-date="2010-11-05">
                 <day>05</day>
                 <month>11</month>
                 <year>2010</year>
             </pub-date>
             <fpage>15</fpage>
             <lpage>15</lpage>
+            <supplementary-material xlink:href="journal-path-article-download" xlink:title="supp-label" mimetype="application/pdf"/>
             <permissions>
                 <copyright-statement>Copyright (c) year article-copyright</copyright-statement>
                 <copyright-year>year</copyright-year>
                 <copyright-holder>article-copyright</copyright-holder>
+                <license xlink:href="https://creativecommons.org/licenses/by/4.0">
+                    <license-p content-type="open-access">This work is licensed under a <ext-link ext-link-type="uri" xlink:href="https://creativecommons.org/licenses/by/4.0/">Creative Commons Attribution 4.0 International License</ext-link>.</license-p>
+                </license>
             </permissions>
             <self-uri xlink:href="journal-path-article-view"/>
-            <self-uri content-type="galley-filetype" xlink:href="journal-path-article-download"/>
+            <self-uri xlink:href="journal-path-article-download" xlink:title="galley-label" content-type="galley-filetype"/>
+            <related-article related-article-type="updated-article" specific-use="isNewVersionOf" ext-link-type="doi" xlink:href="previous-article-doi"/>
             <abstract>
                 <p>article-abstract</p>
             </abstract>
@@ -142,8 +155,10 @@
                 <page-count count="1"/>
             </counts>
         </article-meta>
+        <notes notes-type="update-notice">
+            <p>This version corrects an error in Table 2.</p>
+        </notes>
     </front>
-    <body/>
     <back>
         <ref-list>
             <ref id="R1">

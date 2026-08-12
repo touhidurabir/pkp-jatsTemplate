@@ -135,6 +135,32 @@ class ArticleBodyTest extends PKPTestCase
         $galleys = collect([$galley]);
         $publication->setData('galleys', $galleys);
 
+        // Mock SubmissionFile Repository to provide mimetype
+        $submissionFileMock = \Mockery::mock(\PKP\submissionFile\SubmissionFile::class);
+        $submissionFileMock->shouldReceive('getData')
+            ->andReturnUsing(function ($key) {
+                return match ($key) {
+                    'mimetype' => 'galley-filetype',
+                    'fileId' => 1,
+                    default => null
+                };
+            });
+
+        // Mock Collector for method chaining
+        $collectorMock = \Mockery::mock(\PKP\submissionFile\Collector::class);
+        $collectorMock->shouldReceive('filterBySubmissionIds')->andReturnSelf();
+        $collectorMock->shouldReceive('filterByFileStages')->andReturnSelf();
+        $collectorMock->shouldReceive('getMany')->andReturn(\Illuminate\Support\LazyCollection::make([]));
+
+        $submissionFileRepoMock = \Mockery::mock(\APP\submissionFile\Repository::class);
+        $submissionFileRepoMock->shouldReceive('get')
+            ->with(12)
+            ->andReturn($submissionFileMock);
+        $submissionFileRepoMock->shouldReceive('getCollector')
+            ->andReturn($collectorMock);
+
+        app()->instance(\APP\submissionFile\Repository::class, $submissionFileRepoMock);
+
         // Article
         /** @var Submission|MockObject $article */
         $article = $this->getMockBuilder(Submission::class)
@@ -215,7 +241,7 @@ class ArticleBodyTest extends PKPTestCase
         return $record;
     }
     /**
-     * Test creating the body element if there is no file.
+     * Test that no body element is created if there is no parseable file.
      */
     public function testCreate()
     {
@@ -225,6 +251,6 @@ class ArticleBodyTest extends PKPTestCase
 
         $articleBodyElement = new ArticleBody();
         $xml = $articleBodyElement->create($submission);
-        self::assertXmlStringEqualsXmlString('<body/>', $articleBodyElement->saveXML($xml));
+        self::assertNull($xml);
     }
 }

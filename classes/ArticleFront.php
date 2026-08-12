@@ -32,10 +32,13 @@ use PKP\author\creditRole\CreditRoleDegree;
 use PKP\core\PKPApplication;
 use PKP\core\PKPRequest;
 use PKP\core\PKPString;
+use PKP\db\DAORegistry;
+use PKP\facades\Locale;
 use PKP\galley\Galley;
 use PKP\i18n\LocaleConversion;
 use PKP\plugins\PluginRegistry;
 use PKP\publication\enums\UpdateType;
+use PKP\submission\GenreDAO;
 use PKP\submissionFile\SubmissionFile;
 use PKP\userGroup\UserGroup;
 use XSLTProcessor;
@@ -51,7 +54,6 @@ class ArticleFront extends DOMDocument
         Section $section,
         ?Issue $issue,
         PKPRequest $request,
-        Article $article,
         ?Publication $workingPublication = null
     ): DOMNode {
         $frontNode = $this->appendChild($this->createElement('front'));
@@ -65,10 +67,21 @@ class ArticleFront extends DOMDocument
                     $section,
                     $issue,
                     $request,
-                    $article,
                     $workingPublication
                 )
             );
+
+            // <notes> is a sibling of <article-meta> within <front> (front-model: journal-meta, article-meta, notes?).
+            $summaryOfChanges = $workingPublication->getLocalizedData('summaryOfChanges', $workingPublication->getData('locale'));
+            if (!empty($summaryOfChanges)) {
+                $frontNode->appendChild(JatsHelper::htmlToJatsElement(
+                    $this,
+                    'notes',
+                    $summaryOfChanges,
+                    ['notes-type' => 'update-notice'],
+                    allowParagraphs: true
+                ));
+            }
         }
 
         return $frontNode;
@@ -85,9 +98,11 @@ class ArticleFront extends DOMDocument
             ->setAttribute('journal-id-type', 'ojs')->parentNode
             ->appendChild($this->createTextNode($journal->getPath()))->parentNode;
 
-        $journalMetaElement->appendChild($this->createElement('journal-id'))
-            ->setAttribute('journal-id-type', 'publisher')->parentNode
-            ->appendChild($this->createTextNode($journal->getPath()))->parentNode;
+        if ($abbreviation = $journal->getLocalizedData('abbreviation', $journal->getPrimaryLocale())) {
+            $journalMetaElement->appendChild($this->createElement('journal-id'))
+                ->setAttribute('journal-id-type', 'publisher')->parentNode
+                ->appendChild($this->createTextNode($abbreviation))->parentNode;
+        }
 
         $journalMetaElement->appendChild($this->createJournalMetaJournalTitleGroup($journal));
 
@@ -97,12 +112,12 @@ class ArticleFront extends DOMDocument
         if (!empty($journal->getData('onlineIssn'))) {
             $journalMetaElement->appendChild($this->createElement('issn'))
                 ->appendChild($this->createTextNode($journal->getData('onlineIssn')))->parentNode
-                ->setAttribute('pub-type', 'epub');
+                ->setAttribute('publication-format', 'electronic');
         }
         if (!empty($journal->getData('printIssn'))) {
             $journalMetaElement->appendChild($this->createElement('issn'))
                 ->appendChild($this->createTextNode($journal->getData('printIssn')))->parentNode
-                ->setAttribute('pub-type', 'ppub');
+                ->setAttribute('publication-format', 'print');
         }
 
         $publisherElement = $journalMetaElement->appendChild($this->createElement('publisher'));
@@ -228,7 +243,6 @@ class ArticleFront extends DOMDocument
         Section $section,
         ?Issue $issue,
         PKPRequest $request,
-        Article $article,
         Publication $publication
     ): DOMNode|DOMDocument {
         $articleMetaElement = $this->appendChild($this->createElement('article-meta'));
@@ -245,6 +259,12 @@ class ArticleFront extends DOMDocument
                 ->setAttribute('pub-id-type', 'doi')->parentNode
                 ->appendChild($this->createTextNode($doi));
         }
+
+        // Store the OJS publication (version) ID.
+        $articleMetaElement->appendChild($this->createElement('article-id'))
+            ->setAttribute('pub-id-type', 'other')->parentNode
+            ->setAttribute('specific-use', 'publication')->parentNode
+            ->appendChild($this->createTextNode($publication->getId()));
 
         // Store the article-version
         $versionStage = $publication->getData('versionStage');
@@ -279,16 +299,24 @@ class ArticleFront extends DOMDocument
             ->setAttribute('xml:lang', LocaleConversion::toBcp47($journal->getPrimaryLocale()))->parentNode
             ->setAttribute('subj-group-type', 'heading')->parentNode
             ->appendChild($this->createElement('subject'))
-            ->appendChild($this->createTextNode($section->getLocalizedTitle()));
+            ->appendChild($this->createTextNode($section->getLocalizedData('title', $journal->getPrimaryLocale())));
 
         $titleGroupElement = $articleMetaElement->appendChild($this->createElement('title-group'));
 
-        $titleGroupElement->appendChild($this->createElement('article-title', $article->mapHtmlTagsForTitle($publication->getLocalizedTitle(null, 'html'))))
-            ->setAttribute('xml:lang', LocaleConversion::toBcp47($submission->getData('locale')));
+        $titleGroupElement->appendChild(JatsHelper::htmlToJatsElement(
+            $this,
+            'article-title',
+            $publication->getLocalizedTitle(null, 'html'),
+            ['xml:lang' => LocaleConversion::toBcp47($submission->getData('locale'))]
+        ));
 
-        if (!empty($subtitle = $article->mapHtmlTagsForTitle($publication->getLocalizedSubTitle(null, 'html')))) {
-            $titleGroupElement->appendChild($this->createElement('subtitle', $subtitle))
-                ->setAttribute('xml:lang', LocaleConversion::toBcp47($submission->getData('locale')));
+        if (!empty($subtitle = $publication->getLocalizedSubTitle(null, 'html'))) {
+            $titleGroupElement->appendChild(JatsHelper::htmlToJatsElement(
+                $this,
+                'subtitle',
+                $subtitle,
+                ['xml:lang' => LocaleConversion::toBcp47($submission->getData('locale'))]
+            ));
         }
 
         // Include translated submission titles
@@ -297,14 +325,15 @@ class ArticleFront extends DOMDocument
                 continue;
             }
 
-            if (trim($translatedTitle = $article->mapHtmlTagsForTitle($publication->getLocalizedTitle($locale, 'html'))) === '') {
+            $translatedTitle = $publication->getLocalizedTitle($locale, 'html');
+            if (trim($translatedTitle) === '') {
                 continue;
             }
 
             $transTitleGroupElement = $this->createElement('trans-title-group');
-            $transTitleGroupElement->appendChild($this->createElement('trans-title', $translatedTitle));
-            if (!empty($translatedSubTitle = $article->mapHtmlTagsForTitle($publication->getLocalizedSubTitle($locale, 'html')))) {
-                $transTitleGroupElement->appendChild($this->createElement('trans-subtitle', $translatedSubTitle));
+            $transTitleGroupElement->appendChild(JatsHelper::htmlToJatsElement($this, 'trans-title', $translatedTitle));
+            if (!empty($translatedSubTitle = $publication->getLocalizedSubTitle($locale, 'html'))) {
+                $transTitleGroupElement->appendChild(JatsHelper::htmlToJatsElement($this, 'trans-subtitle', $translatedSubTitle));
             }
             $titleGroupElement->appendChild($transTitleGroupElement)
                 ->setAttribute('xml:lang', LocaleConversion::toBcp47($locale))->parentNode;
@@ -335,33 +364,30 @@ class ArticleFront extends DOMDocument
         }
 
         $competingInterests = $contribGroup['competingInterests'];
-        if (count($competingInterests) > 0) {
+        $correspondingAuthor = $contribGroup['correspondingAuthor'];
+        $correspondingAuthorEmail = $correspondingAuthor
+            && $correspondingAuthor->getData('contributorType') !== ContributorType::ANONYMOUS->getName()
+            ? $correspondingAuthor->getEmail()
+            : null;
+        if ($correspondingAuthorEmail || count($competingInterests) > 0) {
             $authorNotesNode = $this->createElement('author-notes');
+
+            if ($correspondingAuthorEmail) {
+                $correspNode = $authorNotesNode->appendChild($this->createElement('corresp'));
+                $correspNode->setAttribute('id', 'corresp-1');
+                $correspNode->appendChild($this->createElement('email'))
+                    ->appendChild($this->createTextNode($correspondingAuthorEmail));
+            }
+
             foreach ($competingInterests as $id => $competingInterest) {
                 $coiStatement = $competingInterest['coi-statement'];
-
-                // Keep only safe formatting tags supported by JATS
-                $allowedTags = '<i><em><b><strong><u><a><sup><sub><p>';
-                $cleaned = strip_tags($coiStatement, $allowedTags);
-
-                // Escape special characters
-                $escaped = htmlspecialchars($cleaned, ENT_COMPAT, 'UTF-8');
-
-                $coiText = JatsHelper::htmlToJats($escaped);
-                $coiStatementXml = "<fn fn-type=\"coi-statement\" id=\"$id\">$coiText</fn>";
-
-                // Use document fragment to preserve JATS markup
-                $fragment = $this->createDocumentFragment();
-                // Suppress warnings from malformed user-provided biographies
-                if (@$fragment->appendXML($coiStatementXml)) {
-                    $authorNotesNode->appendChild($fragment);
-                } else {
-                    // Fallback if XML parsing fails - createElement handles escaping automatically
-                    $fnNode = $this->createElement('fn', htmlspecialchars(strip_tags($coiStatement), ENT_COMPAT, 'UTF-8'));
-                    $fnNode->setAttribute('fn-type', 'coi-statement');
-                    $fnNode->setAttribute('rid', $id);
-                    $authorNotesNode->appendChild($fnNode);
-                }
+                $authorNotesNode->appendChild(JatsHelper::htmlToJatsElement(
+                    $this,
+                    'fn',
+                    $coiStatement,
+                    ['fn-type' => 'coi-statement', 'id' => $id],
+                    allowParagraphs: true
+                ));
             }
             $articleMetaElement->appendChild($authorNotesNode);
         }
@@ -377,7 +403,7 @@ class ArticleFront extends DOMDocument
         if ($datePublished) {
             $pubDateElement = $articleMetaElement->appendChild($this->createElement('pub-date'))
                 ->setAttribute('date-type', 'pub')->parentNode
-                ->setAttribute('publication-format', 'epub')->parentNode
+                ->setAttribute('publication-format', 'electronic')->parentNode
                 ->setAttribute('iso-8601-date', date('Y-m-d', $datePublished))->parentNode;
 
             $pubDateElement->appendChild($this->createElement('day'))
@@ -461,6 +487,27 @@ class ArticleFront extends DOMDocument
                 ->appendChild($this->createTextNode($articleNumber));
         }
 
+        // Supplementary galley files (JATS puts this before history/pub-history/permissions/self-uri)
+        $galleys = $publication->getData('galleys');
+        $supplementaryGalleyFiles = [];
+        if (!empty($galleys)) {
+            foreach ($galleys as $galley) { /** @var Galley $galley */
+                $galleyFile = $this->getSupplementaryGalleyFile($galley);
+                if (!$galleyFile) {
+                    continue;
+                }
+                $supplementaryGalleyFiles[$galley->getId()] = $galleyFile;
+                $suppNode = $articleMetaElement->appendChild($this->createElement('supplementary-material'));
+                $suppNode->setAttribute('xlink:href', $this->buildGalleyDownloadUrl($request, $journal, $submission, $galley));
+                if ($galley->getLabel()) {
+                    $suppNode->setAttribute('xlink:title', $galley->getLabel());
+                }
+                if ($fileType = $galleyFile->getData('mimetype')) {
+                    $suppNode->setAttribute('mimetype', $fileType);
+                }
+            }
+        }
+
         if (($date = $submission->getData('dateSubmitted')) !== null) {
             $date = Carbon::createFromTimestamp(strtotime($date));
             $eventElement = $articleMetaElement->appendChild($this->createElement('pub-history'))
@@ -480,7 +527,7 @@ class ArticleFront extends DOMDocument
         }
 
         $copyrightYear = $publication->getData('copyrightYear');
-        $copyrightHolder = $publication->getLocalizedData('copyrightHolder');
+        $copyrightHolder = $publication->getLocalizedData('copyrightHolder', $publication->getData('locale'));
         $licenseUrl = $publication->getData('licenseUrl');
         $ccBadge = Application::get()->getCCLicenseBadge($licenseUrl, $submission->getData('locale')) === null ? '' : Application::get()->getCCLicenseBadge($licenseUrl, $submission->getData('locale'));
         if ($copyrightYear || $copyrightHolder || $licenseUrl || $ccBadge) {
@@ -501,8 +548,11 @@ class ArticleFront extends DOMDocument
                 $licenseElement = $permissionsElement->appendChild($this->createElement('license'))
                     ->setAttribute('xlink:href', $licenseUrl)->parentNode;
                 if ($ccBadge) {
-                    $licenseElement->appendChild($this->createElement('license-p'))
-                        ->appendChild($this->createTextNode($ccBadge));
+                    // The CC badge locale string is "<a...><img.../></a><p>prose sentence</p>";
+                    // keep only the prose sentence - the image-badge anchor has no text content to preserve.
+                    $ccProse = preg_match('#<p>(.*)</p>#s', $ccBadge, $matches) ? $matches[1] : strip_tags($ccBadge, '<a>');
+                    $contentType = str_contains($licenseUrl, '/by-nc') ? 'licensed non-commercial use' : 'open-access';
+                    $licenseElement->appendChild(JatsHelper::htmlToJatsElement($this, 'license-p', $ccProse, ['content-type' => $contentType]));
                 }
             }
         }
@@ -527,24 +577,16 @@ class ArticleFront extends DOMDocument
             ->appendChild($this->createElement('self-uri'))
             ->setAttribute('xlink:href', $url);
 
-        $galleys = $publication->getData('galleys'); /** @var iterable|Galley[] $galleys */
         if (!empty($galleys)) {
-            $router = $request->getRouter();
-            $dispatcher = $router->getDispatcher();
             foreach ($galleys as $galley) { /** @var Galley $galley */
+                if (isset($supplementaryGalleyFiles[$galley->getId()])) {
+                    continue;
+                }
                 $uriNode = $articleMetaElement->appendChild($this->createElement('self-uri'));
-                $uriNode->setAttribute(
-                    'xlink:href',
-                    $dispatcher->url(
-                        $request,
-                        PKPApplication::ROUTE_PAGE,
-                        $journal->getData('urlPath'),
-                        'article',
-                        'download',
-                        [$submission->getBestId(), $galley->getId(), $galley->getData('submissionFileId')],
-                        urlLocaleForPage: ''
-                    )
-                );
+                $uriNode->setAttribute('xlink:href', $this->buildGalleyDownloadUrl($request, $journal, $submission, $galley));
+                if ($galley->getLabel()) {
+                    $uriNode->setAttribute('xlink:title', $galley->getLabel());
+                }
                 if (!$galley->getData('urlRemote')) {
                     $fileType = $galley->getData('submissionFileId')
                         ? Repo::submissionFile()->get((int) $galley->getData('submissionFileId'))?->getData('mimetype')
@@ -736,28 +778,12 @@ class ArticleFront extends DOMDocument
             if (!empty($fundingStatement)) {
                 foreach ($fundingStatement as $locale => $statement) {
                     $lang = LocaleConversion::toBcp47($locale);
-
-                    // Keep only safe formatting tags supported by JATS
-                    $allowedTags = '<i><em><b><strong><u><a><sup><sub>';
-                    $cleaned = strip_tags($statement, $allowedTags);
-
-                    // Escape special characters
-                    $escaped = htmlspecialchars($cleaned, ENT_COMPAT, 'UTF-8');
-
-                    $fundingText = JatsHelper::htmlToJats($escaped);
-                    $fundingStatementXml = "<funding-statement xml:lang=\"$lang\">$fundingText</funding-statement>";
-
-                    // Use document fragment to preserve JATS markup
-                    $fragment = $this->createDocumentFragment();
-                    // Suppress warnings from malformed user-provided citations
-                    if (@$fragment->appendXML($fundingStatementXml)) {
-                        $fundingGroupNode->appendChild($fragment);
-                    } else {
-                        // Fallback if XML parsing fails - createElement handles escaping automatically
-                        $fundingStatementNode = $this->createElement('funding-statement', htmlspecialchars(strip_tags($fundingStatement), ENT_COMPAT, 'UTF-8'));
-                        $fundingStatementNode->setAttribute('xml:lang', $lang);
-                        $fundingGroupNode->appendChild($fundingStatementNode);
-                    }
+                    $fundingGroupNode->appendChild(JatsHelper::htmlToJatsElement(
+                        $this,
+                        'funding-statement',
+                        $statement,
+                        ['xml:lang' => $lang]
+                    ));
                 }
             }
             $articleMetaElement->appendChild($fundingGroupNode);
@@ -819,6 +845,39 @@ class ArticleFront extends DOMDocument
     }
 
     /**
+     * Get a galley's underlying submission file if its genre is marked as supplementary, else null.
+     */
+    protected function getSupplementaryGalleyFile(Galley $galley): ?SubmissionFile
+    {
+        if (!$galley->getData('submissionFileId')) {
+            return null;
+        }
+        $galleyFile = Repo::submissionFile()->get((int) $galley->getData('submissionFileId'));
+        if (!$galleyFile) {
+            return null;
+        }
+        $genreDao = DAORegistry::getDAO('GenreDAO'); /** @var GenreDAO $genreDao */
+        $genre = $genreDao->getById($galleyFile->getData('genreId'));
+        return ($genre && $genre->getSupplementary()) ? $galleyFile : null;
+    }
+
+    /**
+     * Build the download URL for a galley
+     */
+    protected function buildGalleyDownloadUrl(PKPRequest $request, Journal $journal, Submission $submission, Galley $galley): string
+    {
+        return $request->getRouter()->getDispatcher()->url(
+            $request,
+            PKPApplication::ROUTE_PAGE,
+            $journal->getData('urlPath'),
+            'article',
+            'download',
+            [$submission->getBestId(), $galley->getBestGalleyId(), $galley->getData('submissionFileId')],
+            urlLocaleForPage: ''
+        );
+    }
+
+    /**
      * Create article-meta contrib-group element
      */
     public function createArticleContribGroup(Submission $submission, Publication $publication): array
@@ -829,6 +888,7 @@ class ArticleFront extends DOMDocument
         // Include authors
         $creditRoleTerms = Repo::creditRole()->getTerms($submissionLocale);
         $affiliations = $institutions = $competingInterests = [];
+        $correspondingAuthor = null;
         foreach ($publication->getData('authors') as $author) { /** @var Author $author */
             $authorTokenList = [];
             $authorAffiliations = $author->getAffiliations();
@@ -869,8 +929,10 @@ class ArticleFront extends DOMDocument
             };
             $contribElement->setAttribute('contrib-type', $contribType);
 
-            if ($publication->getData('primaryContactId') == $author->getId()) {
+            $isCorrespondingAuthor = $publication->getData('primaryContactId') == $author->getId();
+            if ($isCorrespondingAuthor) {
                 $contribElement->setAttribute('corresp', 'yes');
+                $correspondingAuthor = $author;
             }
 
             $contributorType = $author->getData('contributorType');
@@ -923,6 +985,14 @@ class ArticleFront extends DOMDocument
                     $this->appendContributorBiography($contribElement, $bio, LocaleConversion::toBcp47($locale));
                 }
 
+                if ($country = $author->getCountry()) {
+                    $countryName = Locale::getCountries($submissionLocale)->getByAlpha2($country)?->getLocalName();
+                    $contribElement->appendChild($this->createElement('address'))
+                        ->appendChild($this->createElement('country'))
+                        ->setAttribute('country', $country)->parentNode
+                        ->appendChild($this->createTextNode($countryName ?? $country));
+                }
+
                 $contribElement->appendChild($this->createElement('email'))
                     ->appendChild($this->createTextNode($author->getEmail()));
 
@@ -940,6 +1010,12 @@ class ArticleFront extends DOMDocument
                     $contribElement->appendChild($this->createElement('xref'))
                         ->setAttribute('ref-type', 'aff')->parentNode
                         ->setAttribute('rid', $token);
+                }
+
+                if ($isCorrespondingAuthor && $author->getEmail()) {
+                    $contribElement->appendChild($this->createElement('xref'))
+                        ->setAttribute('ref-type', 'corresp')->parentNode
+                        ->setAttribute('rid', 'corresp-1');
                 }
 
                 // Competing interests
@@ -967,7 +1043,8 @@ class ArticleFront extends DOMDocument
         return [
             'contribGroupElement' => $contribGroupElement,
             'institutions' => $institutions,
-            'competingInterests' => $competingInterests
+            'competingInterests' => $competingInterests,
+            'correspondingAuthor' => $correspondingAuthor
         ];
     }
 
@@ -976,27 +1053,13 @@ class ArticleFront extends DOMDocument
      */
     protected function appendContributorBiography(DOMElement $contribElement, string $biography, string $locale): void
     {
-        // Keep only safe formatting tags supported by JATS
-        $allowedTags = '<i><em><b><strong><u><a><sup><sub><p>';
-        $cleaned = strip_tags($biography, $allowedTags);
-
-        // Escape special characters
-        $escaped = htmlspecialchars($cleaned, ENT_COMPAT, 'UTF-8');
-
-        // Convert known safe tags to JATS
-        $convertedBiography = JatsHelper::htmlToJats($escaped);
-
-        $biographyXml = "<bio xml:lang=\"$locale\">$convertedBiography</bio>";
-
-        // Use document fragment to preserve JATS markup
-        $fragment = $this->createDocumentFragment();
-        // Suppress warnings from malformed user-provided biographies
-        if (@$fragment->appendXML($biographyXml)) {
-            $contribElement->appendChild($fragment);
-        } else {
-            // Fallback if XML parsing fails - createElement handles escaping automatically
-            $contribElement->appendChild($this->createElement('bio', htmlspecialchars(strip_tags($biography), ENT_COMPAT, 'UTF-8')));
-        }
+        $contribElement->appendChild(JatsHelper::htmlToJatsElement(
+            $this,
+            'bio',
+            $biography,
+            ['xml:lang' => $locale],
+            allowParagraphs: true
+        ));
     }
 
     /**

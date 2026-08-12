@@ -14,19 +14,21 @@ namespace APP\plugins\generic\jatsTemplate\classes;
 
 use APP\facades\Repo;
 use APP\submission\Submission;
+use DOMDocument;
+use DOMNode;
+use HTMLPurifier;
+use HTMLPurifier_Config;
 use PKP\config\Config;
 use PKP\galley\Galley;
 use PKP\search\parsers\SearchFileParser;
 
-class ArticleBody extends \DOMDocument
+class ArticleBody extends DOMDocument
 {
     /**
-     * Create xml body DOMNode.
+     * Create xml body DOMNode, or null if no parseable full-text content is available.
      */
-    public function create(Submission $submission): \DOMNode
+    public function create(Submission $submission): ?DOMNode
     {
-        // create element body
-        $bodyElement = $this->appendChild($this->createElement('body'));
         $galleys = $submission->getCurrentPublication()->getData('galleys');
         // Get HTML galleys for top of list, as they're quickest to parse
         // PDFs have second-highest priority over other file types
@@ -62,10 +64,10 @@ class ArticleBody extends \DOMDocument
             if (in_array($mimeType, ['text/html'])) {
                 static $purifier;
                 if (!$purifier) {
-                    $config = \HTMLPurifier_Config::createDefault();
+                    $config = HTMLPurifier_Config::createDefault();
                     $config->set('HTML.Allowed', 'p');
                     $config->set('Cache.SerializerPath', 'cache');
-                    $purifier = new \HTMLPurifier($config);
+                    $purifier = new HTMLPurifier($config);
                 }
                 // Remove non-paragraph content
                 $text = $purifier->purify(file_get_contents(Config::getVar('files', 'files_dir') . '/' . $filepath));
@@ -80,15 +82,16 @@ class ArticleBody extends \DOMDocument
             }
             // Use the first parseable galley.
             if (!empty($text)) {
-                // create element p
-                $bodyElement
-                    ->appendChild(
-                        $this->createElement('p', htmlspecialchars($text, ENT_IGNORE))
-                    );
                 break;
             }
         }
 
+        if (empty($text)) {
+            return null;
+        }
+
+        $bodyElement = $this->appendChild($this->createElement('body'));
+        $bodyElement->appendChild($this->createElement('p', htmlspecialchars($text, ENT_IGNORE)));
         return $bodyElement;
     }
 }

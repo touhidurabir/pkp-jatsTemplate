@@ -15,7 +15,6 @@ namespace APP\plugins\generic\jatsTemplate\tests\functional;
 use APP\author\Author;
 use APP\issue\Issue;
 use APP\journal\Journal;
-use APP\plugins\generic\jatsTemplate\classes\Article;
 use APP\plugins\generic\jatsTemplate\classes\ArticleFront;
 use APP\publication\Publication;
 use APP\publication\Repository;
@@ -62,14 +61,27 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
     }
 
     /**
-     * Create article mock instance.
+     * Stub the publication repository to report a single preceding published
+     * version, for tests whose fixtures expect a deterministic version-linking
+     * related-article element rather than whatever the real (unmocked)
+     * getVersionRelation() would compute from the shared mock submission data.
      */
-    private function createArticleMockInstance(OAIRecord $record)
+    private function stubPreviousVersionRelation(): void
     {
-        return $this->getMockBuilder(Article::class)
-            ->setConstructorArgs([$record])
-            ->onlyMethods([])
-            ->getMock();
+        $versionRelation = (object) [
+            'publicationId' => 5,
+            'versionStage' => 'VoR',
+            'versionString' => '',
+            'doi' => null,
+            'doiUrl' => 'previous-article-doi',
+            'datePublished' => '2010-01-01',
+            'relationType' => VersionRelationType::IS_NEW_VERSION_OF,
+            'updateType' => UpdateType::NEW_VERSION,
+        ];
+        $publicationRepoMock = Mockery::mock(Repository::class);
+        $publicationRepoMock->shouldReceive('getVersionRelation')
+            ->andReturn($versionRelation);
+        app()->instance(Repository::class, $publicationRepoMock);
     }
 
     /**
@@ -103,6 +115,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $author->setUrl('https://example.com');
         $author->setBiography("<p>Test biography</p>", 'en');
         $author->setCompetingInterests("<p>Competing interests</p>", 'en');
+        $author->setCountry('GB');
 
         // Publication
         /** @var Doi|MockObject $publicationDoiObject */
@@ -120,10 +133,10 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $publication->setData('locale', 'en');
         $publication->setData('pages', 15);
         $publication->setData('type', 'art-type', 'en');
-        $publication->setData('title', 'article-title-en', 'en');
-        $publication->setData('title', 'article-title-de', 'de');
-        $publication->setData('subtitle', 'article-subtitle-en', 'en');
-        $publication->setData('subtitle', 'article-subtitle-de', 'de');
+        $publication->setData('title', 'article-title-en with <b>bold</b> &amp; special chars', 'en');
+        $publication->setData('title', 'article-title-de with <i>italic</i>', 'de');
+        $publication->setData('subtitle', 'article-subtitle-en with <i>italic</i>', 'en');
+        $publication->setData('subtitle', 'article-subtitle-de with <u>underline</u>', 'de');
         $publication->setData('coverage', ['en' => ['article-coverage-geo', 'article-coverage-chron', 'article-coverage-sample']]);
         $publication->setData('keywords', ['en' => [['name' => 'Professional Development'],['name' => 'Social Transformation']]]);
         $publication->setData('abstract', 'article-abstract', 'en');
@@ -138,7 +151,26 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $publication->setData('languages', ['en' => ['en']]);
         $publication->setData('copyrightHolder', 'article-copyright');
         $publication->setData('copyrightYear', 'year');
+        $publication->setData('licenseUrl', 'https://creativecommons.org/licenses/by/4.0');
         $publication->setData('authors', collect([$author]));
+        $publication->setData('status', Submission::STATUS_PUBLISHED);
+        $publication->setData('updateType', 'new_version');
+        $publication->setData('summaryOfChanges', '<p>This version corrects an error in Table 2.</p>', 'en');
+
+        // Previous published version, for the related-article back-link
+        /** @var Doi|MockObject $previousDoiObject */
+        $previousDoiObject = $this->getMockBuilder(Doi::class)
+            ->onlyMethods([])
+            ->getMock();
+        $previousDoiObject->setData('doi', 'previous-article-doi');
+
+        /** @var Publication|MockObject $previousPublication */
+        $previousPublication = $this->getMockBuilder(Publication::class)
+            ->onlyMethods([])
+            ->getMock();
+        $previousPublication->setData('id', 2);
+        $previousPublication->setData('status', Submission::STATUS_PUBLISHED);
+        $previousPublication->setData('doiObject', $previousDoiObject);
 
         // Article
         /** @var Submission|MockObject $article */
@@ -155,6 +187,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $article->expects($this->any())
             ->method('getCurrentPublication')
             ->willReturn($publication);
+        $article->setData('publications', collect([$previousPublication, $publication]));
 
         /** @var Doi|MockObject $galleyDoiObject */
         $galleyDoiObject = $this->getMockBuilder(Doi::class)
@@ -173,8 +206,22 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $galley->setId(98);
         $galley->setData('submissionFileId', 98);
         $galley->setData('doiObject', $galleyDoiObject);
+        $galley->setData('label', 'galley-label');
 
-        $galleys = collect([$galley]);
+        // Supplementary galley (genre 2 = "Research Instrument", supplementary in the test DB)
+        /** @var Galley|MockObject $suppGalley */
+        $suppGalley = $this->getMockBuilder(Galley::class)
+            ->onlyMethods(['getBestGalleyId'])
+            ->getMock();
+        $suppGalley->expects(self::any())
+            ->method('getBestGalleyId')
+            ->willReturn(99);
+        $suppGalley->setId(99);
+        $suppGalley->setData('submissionFileId', 99);
+        $suppGalley->setData('label', 'supp-label');
+
+        $galleys = collect([$galley, $suppGalley]);
+        $publication->setData('galleys', $galleys);
 
         // Mock SubmissionFile Repository to provide mimetype
         $submissionFileMock = Mockery::mock(SubmissionFile::class);
@@ -183,6 +230,17 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
                 return match ($key) {
                     'mimetype' => 'galley-filetype',
                     'fileId' => 1,
+                    default => null
+                };
+            });
+
+        $suppSubmissionFileMock = \Mockery::mock(\PKP\submissionFile\SubmissionFile::class);
+        $suppSubmissionFileMock->shouldReceive('getData')
+            ->andReturnUsing(function ($key) {
+                return match ($key) {
+                    'mimetype' => 'application/pdf',
+                    'fileId' => 2,
+                    'genreId' => 2,
                     default => null
                 };
             });
@@ -197,6 +255,9 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $submissionFileRepoMock->shouldReceive('get')
             ->with(98)
             ->andReturn($submissionFileMock);
+        $submissionFileRepoMock->shouldReceive('get')
+            ->with(99)
+            ->andReturn($suppSubmissionFileMock);
         $submissionFileRepoMock->shouldReceive('getCollector')
             ->andReturn($collectorMock);
 
@@ -219,7 +280,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal->setPrimaryLocale('en');
         $journal->setPath('journal-path');
         $journal->setData(Journal::SETTING_ENABLE_DOIS, true);
-        $journal->setData('abbreviation', 'publicknowledgeJ Pub Know', 'en');
+        $journal->setData('abbreviation', 'J Pub Know', 'en');
         $journal->setData('publisherInstitution', 'journal-publisher');
         $journal->setData('onlineIssn', 'onlineIssn');
         $journal->setData('printIssn', 'printIssn');
@@ -275,8 +336,9 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal = & $record->getData('journal'); /** @var Journal $journal */
         $section = & $record->getData('section'); /** @var Section $section */
         $issue = & $record->getData('issue'); /** @var Issue $issue */
-        $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+
+        $this->stubPreviousVersionRelation();
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->create(
@@ -285,7 +347,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $section,
             $issue,
             $this->createRequestMockInstance(),
-            $article,
             $publication
         );
         $xml->ownerDocument->formatOutput = true;
@@ -327,8 +388,9 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal = & $record->getData('journal'); /** @var Journal $journal */
         $section = & $record->getData('section'); /** @var Section $section */
         $issue = & $record->getData('issue'); /** @var Issue $issue */
-        $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+
+        $this->stubPreviousVersionRelation();
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createArticleMeta(
@@ -337,7 +399,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $section,
             $issue,
             $this->createRequestMockInstance(),
-            $article,
             $publication
         );
         $xml->ownerDocument->formatOutput = true;
@@ -358,7 +419,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal = & $record->getData('journal'); /** @var Journal $journal */
         $section = & $record->getData('section'); /** @var Section $section */
         $issue = & $record->getData('issue'); /** @var Issue $issue */
-        $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
 
         // Stub the repository to return a single preceding-version relation (chain-only).
@@ -384,7 +444,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $section,
             $issue,
             $this->createRequestMockInstance(),
-            $article,
             $publication
         );
 
@@ -412,8 +471,11 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal = & $record->getData('journal'); /** @var Journal $journal */
         $section = & $record->getData('section'); /** @var Section $section */
         $issue = & $record->getData('issue'); /** @var Issue $issue */
-        $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
+
+        $publicationRepoMock = Mockery::mock(Repository::class);
+        $publicationRepoMock->shouldReceive('getVersionRelation')->andReturnNull();
+        app()->instance(Repository::class, $publicationRepoMock);
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createArticleMeta(
@@ -422,7 +484,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $section,
             $issue,
             $this->createRequestMockInstance(),
-            $article,
             $publication
         );
 
@@ -449,9 +510,12 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $journal = & $record->getData('journal'); /** @var Journal $journal */
         $section = & $record->getData('section'); /** @var Section $section */
         $issue = & $record->getData('issue'); /** @var Issue $issue */
-        $article = $this->createArticleMockInstance($record);
         $publication = $submission->getCurrentPublication(); /** @var Publication $publication */
         $publication->setData('versionStage', 'PMUR');
+
+        $publicationRepoMock = Mockery::mock(Repository::class);
+        $publicationRepoMock->shouldReceive('getVersionRelation')->andReturnNull();
+        app()->instance(Repository::class, $publicationRepoMock);
 
         $articleFrontElement = new ArticleFront();
         $xml = $articleFrontElement->createArticleMeta(
@@ -460,7 +524,6 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
             $section,
             $issue,
             $this->createRequestMockInstance(),
-            $article,
             $publication
         );
 
