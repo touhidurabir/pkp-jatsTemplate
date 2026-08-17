@@ -207,6 +207,7 @@ class ArticleFrontTest extends \PKP\tests\PKPTestCase
         $galley->setData('submissionFileId', 98);
         $galley->setData('doiObject', $galleyDoiObject);
         $galley->setData('label', 'galley-label');
+        $galley->setData('locale', 'en');
 
         // Supplementary galley (genre 2 = "Research Instrument", supplementary in the test DB)
         /** @var Galley|MockObject $suppGalley */

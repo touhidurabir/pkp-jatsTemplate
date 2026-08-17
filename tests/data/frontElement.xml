@@ -125,7 +125,7 @@
       </license>
     </permissions>
     <self-uri xlink:href="journal-path-article-view"/>
-    <self-uri xlink:href="journal-path-article-download" xlink:title="galley-label" content-type="galley-filetype"/>
+    <self-uri xlink:href="journal-path-article-download" xml:lang="en" xlink:title="galley-label" content-type="galley-filetype"/>
     <related-article related-article-type="updated-article" specific-use="isNewVersionOf" ext-link-type="doi" xlink:href="previous-article-doi"/>
     <abstract>
       <p>article-abstract</p>

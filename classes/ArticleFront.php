@@ -584,6 +584,9 @@ class ArticleFront extends DOMDocument
                 }
                 $uriNode = $articleMetaElement->appendChild($this->createElement('self-uri'));
                 $uriNode->setAttribute('xlink:href', $this->buildGalleyDownloadUrl($request, $journal, $submission, $galley));
+                if ($galley->getLocale()) {
+                    $uriNode->setAttribute('xml:lang', LocaleConversion::toBcp47($galley->getLocale()));
+                }
                 if ($galley->getLabel()) {
                     $uriNode->setAttribute('xlink:title', $galley->getLabel());
                 }
